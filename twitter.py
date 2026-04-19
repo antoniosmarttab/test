@@ -18,12 +18,6 @@ BOT_TOKEN = "8668559641:AAHAe-XIkJeNi3y6-DErOVjTacetoMZsG5M"
 CHANNEL_ID = "@modamer247"
 
 # ============================================================
-# FILES
-# ============================================================
-SENT_IDS_FILE = "sent_tweet_ids.txt"
-LAST_ID_FILE  = "last_tweet_id.json"
-
-# ============================================================
 # LEBANON TIMEZONE (UTC+3)
 # ============================================================
 BEIRUT_TZ = timezone(timedelta(hours=3))
@@ -31,9 +25,32 @@ BEIRUT_TZ = timezone(timedelta(hours=3))
 # ============================================================
 # SLEEP SETTINGS
 # ============================================================
-SLEEP_BETWEEN_ACCOUNTS = 70   # seconds between each account
-SLEEP_BETWEEN_MESSAGES  = 2  # seconds between telegram messages
-INTERVAL_MINUTES        = 30 # fetch every 30 min
+SLEEP_BETWEEN_ACCOUNTS = 7
+SLEEP_BETWEEN_MESSAGES  = 2
+INTERVAL_MINUTES        = 30
+
+# ============================================================
+# FALLBACK LAST IDS — used only if json file doesn't exist
+# ============================================================
+LAST_IDS_DEFAULT = {
+    "MarioNawfal":    "2045971700152439015",
+    "realDonaldTrump":"2027651077865157033",
+    "Megatron_ron":   "2045971114682356077",
+    "Tasnimnews_EN":  "2045848242986869012",
+    "waqa2e3":        "2045968439177556034",
+    "MTVLebanonNews": "2045973765356474419",
+    "ALJADEEDNEWS":   "2045972948985557415",
+    "lebanondebate":  "2045955832936911199",
+    "France24_ar":    "2045951382641938882",
+    "TuckerCarlson":  "2043645373911273597",
+    "AP":             "2045925454167548330",
+    "Iran":           "2045955248372547858",
+    "AJENews":        "2045973472547877258",
+    "RTarabic":       "2045974719719940350",
+    "clashreport":    "2045976754121060789",
+    "BRICSinfo":      "2045973716970992028",
+    "BBCBreaking":    "2045914578454745125",
+}
 
 # ============================================================
 # ALL ACCOUNTS
@@ -43,7 +60,6 @@ ACCOUNTS = [
     {"user_id": "25073877",            "screen_name": "realDonaldTrump"},
     {"user_id": "1225234593789423616", "screen_name": "Megatron_ron"},
     {"user_id": "1699037857",          "screen_name": "Tasnimnews_EN"},
-    #{"user_id": "1652541",             "screen_name": "Reuters"},
     {"user_id": "1501536111398641665", "screen_name": "waqa2e3"},
     {"user_id": "397199380",           "screen_name": "MTVLebanonNews"},
     {"user_id": "144105935",           "screen_name": "ALJADEEDNEWS"},
@@ -60,30 +76,20 @@ ACCOUNTS = [
 ]
 
 # ============================================================
-# LAST ID STORAGE
+# LAST ID FILE
 # ============================================================
+LAST_ID_FILE = "last_tweet_id.json"
+
 def load_last_ids():
-    if not os.path.exists(LAST_ID_FILE):
-        return {}
-    with open(LAST_ID_FILE, "r") as f:
-        return json.load(f)
+    if os.path.exists(LAST_ID_FILE):
+        with open(LAST_ID_FILE, "r") as f:
+            return json.load(f)
+    # fallback to hardcoded defaults
+    return dict(LAST_IDS_DEFAULT)
 
 def save_last_ids(last_ids):
     with open(LAST_ID_FILE, "w") as f:
         json.dump(last_ids, f, indent=2)
-
-# ============================================================
-# SENT IDS
-# ============================================================
-def load_sent_ids():
-    if not os.path.exists(SENT_IDS_FILE):
-        return set()
-    with open(SENT_IDS_FILE, "r") as f:
-        return set(line.strip() for line in f if line.strip())
-
-def save_sent_id(tweet_id):
-    with open(SENT_IDS_FILE, "a") as f:
-        f.write(tweet_id + "\n")
 
 # ============================================================
 # TWITTER
@@ -103,7 +109,7 @@ def build_headers(screen_name):
     }
 
 def fetch_tweets(account):
-    user_id    = account["user_id"]
+    user_id     = account["user_id"]
     screen_name = account["screen_name"]
     variables = {
         "userId": user_id,
@@ -161,7 +167,6 @@ def extract_tweet(entry, screen_name):
 
         result = item_content.get("tweet_results", {}).get("result", {})
 
-        # handle TweetWithVisibilityResults wrapper
         if result.get("__typename") == "TweetWithVisibilityResults":
             result = result.get("tweet", {})
 
@@ -169,11 +174,9 @@ def extract_tweet(entry, screen_name):
         if not legacy:
             return None
 
-        # skip retweets
         if legacy.get("full_text", "").startswith("RT @"):
             return None
 
-        # ✅ use note_tweet full text if available (long tweets)
         note_tweet = result.get("note_tweet", {})
         full_text = (
             note_tweet
@@ -183,9 +186,9 @@ def extract_tweet(entry, screen_name):
         ) or legacy.get("full_text", "")
 
         return {
-            "id":         legacy.get("id_str"),
-            "created_at": legacy.get("created_at", ""),
-            "text":       full_text,
+            "id":          legacy.get("id_str"),
+            "created_at":  legacy.get("created_at", ""),
+            "text":        full_text,
             "screen_name": screen_name,
             "url": f"https://x.com/{screen_name}/status/{legacy.get('id_str')}",
         }
@@ -200,9 +203,9 @@ def send_to_telegram(tweet):
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     try:
-        dt_utc = datetime.strptime(tweet["created_at"], "%a %b %d %H:%M:%S +0000 %Y")
+        dt_utc    = datetime.strptime(tweet["created_at"], "%a %b %d %H:%M:%S +0000 %Y")
         dt_beirut = dt_utc.replace(tzinfo=timezone.utc).astimezone(BEIRUT_TZ)
-        date_str = dt_beirut.strftime("%d %b %Y • %H:%M Lebanon")
+        date_str  = dt_beirut.strftime("%d %b %Y • %H:%M Lebanon")
     except Exception:
         date_str = tweet.get("created_at", "")
 
@@ -226,7 +229,7 @@ def send_to_telegram(tweet):
 # ============================================================
 # MAIN JOB
 # ============================================================
-def job(sent_ids, last_ids):
+def job(last_ids):
     now = datetime.now(BEIRUT_TZ).strftime('%H:%M:%S')
     print(f"\n[{now} Lebanon] Checking {len(ACCOUNTS)} accounts...")
 
@@ -241,27 +244,11 @@ def job(sent_ids, last_ids):
                 time.sleep(SLEEP_BETWEEN_ACCOUNTS)
                 continue
 
-            last_sent_id = last_ids.get(screen_name)
+            last_sent_id = last_ids.get(screen_name, "0")
 
-            # FIRST RUN: send only the latest tweet
-            if last_sent_id is None:
-                latest = tweets[-1]
-                if latest["id"] not in sent_ids:
-                    if send_to_telegram(latest):
-                        sent_ids.add(latest["id"])
-                        save_sent_id(latest["id"])
-                        last_ids[screen_name] = latest["id"]
-                        print(f"  ✅ @{screen_name}: first run, sent {latest['id']}")
-                else:
-                    last_ids[screen_name] = latest["id"]
-                    print(f"  ✅ @{screen_name}: first run, cursor set")
-                time.sleep(SLEEP_BETWEEN_ACCOUNTS)
-                continue
-
-            # NEXT RUNS: only tweets newer than cursor
             new_tweets = [
                 t for t in tweets
-                if int(t["id"]) > int(last_sent_id) and t["id"] not in sent_ids
+                if int(t["id"]) > int(last_sent_id)
             ]
 
             if not new_tweets:
@@ -271,8 +258,6 @@ def job(sent_ids, last_ids):
 
             for tweet in new_tweets:
                 if send_to_telegram(tweet):
-                    sent_ids.add(tweet["id"])
-                    save_sent_id(tweet["id"])
                     last_ids[screen_name] = tweet["id"]
                     print(f"  ✅ @{screen_name}: sent {tweet['id']}")
                 time.sleep(SLEEP_BETWEEN_MESSAGES)
@@ -284,22 +269,20 @@ def job(sent_ids, last_ids):
 
     save_last_ids(last_ids)
     now2 = datetime.now(BEIRUT_TZ).strftime('%H:%M:%S')
-    print(f"  ✔ [{now2}] Done. {len(sent_ids)} total IDs. Next run in {INTERVAL_MINUTES} min.")
+    print(f"  ✔ [{now2}] Done. Next run in {INTERVAL_MINUTES} min.")
 
 # ============================================================
 # START
 # ============================================================
 if __name__ == "__main__":
     print("🚀 Modamer 24/7 Bot started!")
-    print(f"📋 {len(ACCOUNTS)} accounts | {INTERVAL_MINUTES} min interval | Lebanon time | full tweet text")
+    print(f"📋 {len(ACCOUNTS)} accounts | {INTERVAL_MINUTES} min interval | Lebanon time")
 
-    sent_ids = load_sent_ids()
     last_ids = load_last_ids()
+    print(f"📂 Loaded cursors for {len(last_ids)} accounts\n")
 
-    print(f"📂 Loaded {len(sent_ids)} sent IDs, {len(last_ids)} account cursors\n")
-
-    job(sent_ids, last_ids)
+    job(last_ids)
 
     while True:
         time.sleep(INTERVAL_MINUTES * 60)
-        job(sent_ids, last_ids)
+        job(last_ids)
