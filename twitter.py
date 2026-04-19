@@ -25,7 +25,7 @@ BEIRUT_TZ = timezone(timedelta(hours=3))
 # ============================================================
 # SLEEP SETTINGS
 # ============================================================
-SLEEP_BETWEEN_ACCOUNTS = 7
+SLEEP_BETWEEN_ACCOUNTS = 70
 SLEEP_BETWEEN_MESSAGES  = 2
 INTERVAL_MINUTES        = 30
 
